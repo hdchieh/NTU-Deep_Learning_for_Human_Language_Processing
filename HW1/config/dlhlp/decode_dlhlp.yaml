@@ -7,7 +7,7 @@ data:
     name:  'dlhlp'
     dev_split: ['dev']
     test_split: ['test']
-    test_path: '/media/en/HDD-1TB/Documents/DLHLP/HW1/data/DLHLP/test'
+    test_path: '/mnt/Documents/DLHLP/HW1/data/DLHLP/test'
 decode:
   beam_size: 2
   min_len_ratio: 0.01

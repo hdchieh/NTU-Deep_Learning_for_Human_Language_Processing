@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from torch import nn
 import torch.nn.functional as F
-
+import heapq
 from src.lm import RNNLM
 from src.ctc import CTCPrefixScore
 
@@ -24,7 +24,7 @@ class BeamDecoder(nn.Module):
         self.asr = asr
 
         # ToDo : implement pure ctc decode
-        assert self.asr.enable_att
+        #assert self.asr.enable_att
 
         # Additional decoding modules
         self.apply_ctc = ctc_weight > 0
@@ -61,7 +61,63 @@ class BeamDecoder(nn.Module):
                 self.lm_w, self.emb_decoder.fuse_lambda.mean().cpu().item()))
 
         return msg
+    
+    def mergeScore(self,beams):
+        # beams = [( [ , , , ] , score)* len ]
+        dicScore = {}
+        sam_index = []
+        for i in range(len(beams)):
+            if beams[i][0][-1] == 0 and beams[i][0][-2] != 0:
+                score = np.log(np.exp(dicScore.get(beams[i][0][-2],0))+np.exp(beams[i][1])) 
+                dicScore[beams[i][0][-2]] = score
+                beams[i][1] = LOG_ZERO
+            elif beams[i][0][-2] == 0 and beams[i][0][-1] != 0:
+                score = np.log(np.exp(dicScore.get(beams[i][0][-1],0))+np.exp(beams[i][1] ))
+                dicScore[beams[i][0][-1]] = score
+                beams[i][1] = LOG_ZERO
+            elif beams[i][0][-2] == beams[i][0][-1] and beams[i][0][-1] != 0:
+                score = np.log(np.exp(dicScore.get(beams[i][0][-1],0))+np.exp(beams[i][1] ))
+                dicScore[beams[i][0][-2]] = score
+                sam_index += [i]
+        for i in sam_index:
+            beams[i][1] = dicScore[beams[i][0][-2]]
+        #print(sam_index)
+    
+    def beam_search(self,ctc_output):
+        # <pad> : 0 
+        # beams = [( [ , , , ] , score)* len ]
+        def second(x):
+            return x[1]
+        ctc_output = ctc_output.cpu().tolist()
+        #print(ctc_output)
+        seq_len = len(ctc_output)
+        alpha_len = len(ctc_output[0])
+        ctc_sort_index = np.argsort(ctc_output,axis=1)
+        can = ctc_sort_index[0][-self.ctc_beam_size:]
+        seqs_dic = {}
+        beams = [[[i],ctc_output[0][i] ]for i in can]
+        
+        for t in range(seq_len-1):
+            beams.sort(key=second,reverse=True)
+            
+            best = beams[:self.ctc_beam_size]
+            #print(best)
+            beams = []
+            for b in best:
+                for c in ctc_sort_index[t+1]:
+                    beams += [[b[0]+[c],b[1]+ctc_output[t+1][c]]]
+            self.mergeScore(beams)
+        #print(beams)
+        return max(beams,key=second)
 
+
+
+        #for t in range(seq_len):
+            
+            
+
+
+        #pass 
     def forward(self, audio_feature, feature_len):
         # Init.
         assert audio_feature.shape[0] == 1, "Batchsize == 1 is required for beam search"
@@ -69,7 +125,8 @@ class BeamDecoder(nn.Module):
         device = audio_feature.device
         dec_state = self.asr.decoder.init_state(
             batch_size)                           # Init zero states
-        self.asr.attention.reset_mem()            # Flush attention mem
+        if self.asr.enable_att:
+            self.asr.attention.reset_mem()            # Flush attention mem
         # Max output len set w/ hyper param.
         max_output_len = int(
             np.ceil(feature_len.cpu().item()*self.max_len_ratio))
@@ -77,7 +134,8 @@ class BeamDecoder(nn.Module):
         min_output_len = int(
             np.ceil(feature_len.cpu().item()*self.min_len_ratio))
         # Store attention map if location-aware
-        store_att = self.asr.attention.mode == 'loc'
+        if self.asr.enable_att:
+            store_att = self.asr.attention.mode == 'loc'
         prev_token = torch.zeros(
             (batch_size, 1), dtype=torch.long, device=device)     # Start w/ <sos>
         # Cache of beam search
@@ -95,12 +153,20 @@ class BeamDecoder(nn.Module):
                 self.asr.ctc_layer(encode_feature), dim=-1)
             ctc_prefix = CTCPrefixScore(ctc_output)
             ctc_state = ctc_prefix.init_state()
+            #beam size == 1
             if self.ctc_w == 1.0:
+                # fucking beam search
+                
+                #beam_output_seq = self.beam_search(ctc_output[0])[0]
+                #print(beam_output_seq)
+                #output_seq = torch.tensor(beam_output_seq)
                 output_seq = ctc_output[0].argmax(dim=-1)
+                #print(output_seq)
                 hypothesis = [Hypothesis(decoder_state=dec_state, output_seq=output_seq,
-                                         output_scores=[0]*len(output_seq), lm_state=None, ctc_prob=0,
-                                         ctc_state=ctc_state, att_map=None)]
+                          output_scores=[0]*len(output_seq), lm_state=None, ctc_prob=0,
+                          ctc_state=ctc_state, att_map=None)]
                 return hypothesis
+
         # Start w/ empty hypothesis
         prev_top_hypothesis = [Hypothesis(decoder_state=dec_state, output_seq=[],
                                           output_scores=[], lm_state=None, ctc_prob=0,
@@ -111,20 +177,25 @@ class BeamDecoder(nn.Module):
                 # Resume previous step
                 prev_token, prev_dec_state, prev_attn, prev_lm_state, prev_ctc_state = hypothesis.get_state(
                     device)
-                self.asr.set_state(prev_dec_state, prev_attn)
+                if self.asr.enable_att:
+                    self.asr.set_state(prev_dec_state, prev_attn)
 
                 # Normal asr forward
-                attn, context = self.asr.attention(
-                    self.asr.decoder.get_query(), encode_feature, encode_len)
-                asr_prev_token = self.asr.pre_embed(prev_token)
-                decoder_input = torch.cat([asr_prev_token, context], dim=-1)
-                cur_prob, d_state = self.asr.decoder(decoder_input)
+                if self.asr.enable_att:
+                    attn, context = self.asr.attention(
+                        self.asr.decoder.get_query(), encode_feature, encode_len)
+                    asr_prev_token = self.asr.pre_embed(prev_token)
+                    decoder_input = torch.cat([asr_prev_token, context], dim=-1)
+                    cur_prob, d_state = self.asr.decoder(decoder_input)
 
                 # Embedding fusion (output shape 1xV)
                 if self.apply_emb:
                     _, cur_prob = self.emb_decoder( d_state, cur_prob, return_loss=False)
                 else:
-                    cur_prob = F.log_softmax(cur_prob, dim=-1)
+                    if self.asr.enable_att:
+                        cur_prob = F.log_softmax(cur_prob, dim=-1)
+                    else:
+                        cur_prob = torch.zeros_like(ctc_output).data.fill_(LOG_ZERO)
 
                 # Perform CTC prefix scoring on limited candidates (else OOM easily)
                 if self.apply_ctc:
@@ -156,15 +227,16 @@ class BeamDecoder(nn.Module):
                 # Beam search
                 # Note: Ignored batch dim.
                 topv, topi = cur_prob.squeeze(0).topk(self.beam_size)
-                prev_attn = self.asr.attention.att_layer.prev_att.cpu() if store_att else None
-                final, top = hypothesis.addTopk(topi, topv, self.asr.decoder.get_state(), att_map=prev_attn,
-                                                lm_state=lm_state, ctc_state=ctc_state, ctc_prob=ctc_prob,
-                                                ctc_candidates=candidates)
-                # Move complete hyps. out
-                if final is not None and (t >= min_output_len):
-                    final_hypothesis.append(final)
-                    if self.beam_size == 1:
-                        return final_hypothesis
+                if self.asr.enable_att:
+                    prev_attn = self.asr.attention.att_layer.prev_att.cpu() if store_att else None
+                    final, top = hypothesis.addTopk(topi, topv, self.asr.decoder.get_state(), att_map=prev_attn,
+                                                    lm_state=lm_state, ctc_state=ctc_state, ctc_prob=ctc_prob,
+                                                    ctc_candidates=candidates)
+                    # Move complete hyps. out
+                    if final is not None and (t >= min_output_len):
+                        final_hypothesis.append(final)
+                        if self.beam_size == 1:
+                            return final_hypothesis
                 next_top_hypothesis.extend(top)
 
             # Sort for top N beams
