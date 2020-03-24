@@ -17,7 +17,7 @@ class Solver(BaseSolver):
         super().__init__(config, paras, mode)
 
         # ToDo : support tr/eval on different corpus
-        print(self.src_config)
+        #print(self.src_config)
         assert self.config['data']['corpus']['name'] == self.src_config['data']['corpus']['name']
         self.config['data']['corpus']['path'] = self.src_config['data']['corpus']['path']
         self.config['data']['corpus']['bucketing'] = False
@@ -48,7 +48,7 @@ class Solver(BaseSolver):
     def set_model(self):
         ''' Setup ASR model '''
         # Model
-        print(self.config)
+        #print(self.config)
         init_adadelta = self.config['hparas']['optimizer'] == 'Adadelta'
         self.model = ASR(self.feat_dim, self.vocab_size, init_adadelta, **
                          self.config['model']).to(self.device)

@@ -61,7 +61,7 @@ def collect_text_batch(batch, mode):
     return text
 
 
-def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size,
+def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size, test_path,
                    train_split=None, dev_split=None, test_split=None):
     ''' Interface for creating all kinds of dataset'''
 
@@ -93,9 +93,11 @@ def create_dataset(tokenizer, ascending, name, path, bucketing, batch_size,
         # Testing model
         mode = 'test'
         # Do not use bucketing for dev set
-        dv_set = Dataset(path, dev_split, tokenizer, 1)
+        # dv_set = Dataset(path, dev_split, tokenizer, 1)
+        dv_set = Dataset(test_path, test_split, tokenizer, 1)
         # Do not use bucketing for test set
-        tt_set = Dataset(path, test_split, tokenizer, 1)
+        print(path)
+        tt_set = Dataset(test_path, test_split, tokenizer, 1)
         # Messages to show
         msg_list = _data_msg(name, path, dev_split.__str__(), len(dv_set),
                              test_split.__str__(), len(tt_set), batch_size, False)

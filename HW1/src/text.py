@@ -58,7 +58,7 @@ class CharacterTextEncoder(_BaseTextEncoder):
         # Manually append eos to the end
         return [self.vocab_to_idx(v) for v in s] + [self.eos_idx]
 
-    def decode(self, idxs, ignore_repeat=False):
+    def decode(self, idxs, ignore_repeat=True):
         vocabs = []
         for t, idx in enumerate(idxs):
             v = self.idx_to_vocab(idx)

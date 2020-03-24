@@ -34,7 +34,10 @@ class DlhlpDataset(Dataset):
         # List all wave files
         file_list = []
         for s in split:
-            split_list = list(Path(join(path, s)).rglob("*.wav"))
+            if s=='test':
+                split_list = list(Path(join(path)).rglob("*.wav"))
+            else:
+                split_list = list(Path(join(path, s)).rglob("*.wav"))
             assert len(split_list) > 0, "No data found @ {}".format(join(path,s))
             file_list += split_list
         # Read text

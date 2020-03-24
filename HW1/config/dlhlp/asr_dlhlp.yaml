@@ -8,7 +8,7 @@ data:
     batch_size: 16
   audio:                                  # Attributes of audio feature
     feat_type: 'fbank'
-    feat_dim:  40
+    feat_dim:  80
     frame_length: 25                      # ms
     frame_shift: 10                       # ms
     dither: 0                             # random dither audio, 0: no dither
@@ -21,7 +21,7 @@ data:
 
 hparas:                                   # Experiment hyper-parameters
   valid_step: 500
-  max_step: 80001
+  max_step: 152001
   tf_start: 1.0
   tf_end: 1.0
   tf_step: 500000
@@ -29,10 +29,10 @@ hparas:                                   # Experiment hyper-parameters
   lr: 1.0
   eps: 0.00000001                         # 1e-8
   lr_scheduler: 'fixed'                   # 'fixed'/'warmup'
-  curriculum: 0
+  curriculum: 15000
 
 model:                                    # Model architecture
-  ctc_weight: 0                         # Weight for CTC loss
+  ctc_weight: 0.5                         # Weight for CTC loss
   encoder:
     prenet: 'vgg'                         # 'vgg'/'cnn'/''
     # vgg: True                             # 4x reduction on time feature extraction
