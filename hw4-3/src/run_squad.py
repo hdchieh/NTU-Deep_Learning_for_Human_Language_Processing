@@ -514,7 +514,7 @@ def main():
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained('config.json')
+    config = config_class.from_pretrained('./config.json')
     tokenizer = tokenizer_class.from_pretrained('bert-base-chinese')
     
     model = model_class.from_pretrained(args.model_name_or_path, config=config)
